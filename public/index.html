@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>💬 Real-Time Chat Room</title>
+    <style>
+      :root {
+        --primary: #4e54c8;
+        --secondary: #8f94fb;
+        --bg: #f3f4f6;
+        --white: #ffffff;
+        --text: #222;
+        --gray: #666;
+        --radius: 8px;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Poppins", sans-serif;
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        color: var(--text);
+      }
+
+      .chat-container {
+        width: 90%;
+        max-width: 500px;
+        background: var(--white);
+        border-radius: var(--radius);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: fadeIn 0.5s ease;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      .header {
+        background: linear-gradient(135deg, var(--primary), var(--secondary));
+        color: white;
+        text-align: center;
+        padding: 15px;
+        font-size: 1.2rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      }
+
+      #users {
+        font-size: 0.9rem;
+        background: #f9fafb;
+        color: var(--gray);
+        padding: 8px 12px;
+        border-bottom: 1px solid #ddd;
+      }
+
+      #chat {
+        flex: 1;
+        padding: 15px;
+        overflow-y: auto;
+        background: var(--bg);
+      }
+
+      .message {
+        background: var(--white);
+        margin: 8px 0;
+        padding: 10px 14px;
+        border-radius: var(--radius);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        line-height: 1.4;
+      }
+
+      .message strong {
+        color: var(--primary);
+      }
+
+      .notification {
+        text-align: center;
+        color: var(--gray);
+        font-size: 0.85rem;
+        font-style: italic;
+        margin: 6px 0;
+      }
+
+      #message-form {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px;
+        background: #f9fafb;
+        border-top: 1px solid #ddd;
+      }
+
+      /* allow input to shrink on small screens while remaining usable */
+      #message-input {
+        flex: 1 1 auto;
+        min-width: 0; /* important to prevent overflow inside flex */
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: var(--radius);
+        outline: none;
+        transition: border 0.2s ease;
+      }
+
+      /* ensure form controls don't get pushed out of view */
+      #message-form select,
+      #message-form input[type="file"],
+      #message-form button,
+      #message-form #voice-btn {
+        flex: 0 0 auto;
+      }
+
+      /* compact file input so it doesn't occupy too much space */
+      #message-form input[type="file"] {
+        max-width: 34px;
+        padding: 4px;
+      }
+
+      /* style the voice button so it's always visible */
+      #voice-btn {
+        min-width: 72px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: var(--primary);
+        color: #fff;
+        border: none;
+      }
+
+      #message-input:focus {
+        border-color: var(--primary);
+      }
+
+      button {
+        margin-left: 10px;
+        padding: 10px 16px;
+        background: var(--primary);
+        color: white;
+        border: none;
+        border-radius: var(--radius);
+        cursor: pointer;
+        font-weight: 500;
+        transition: 0.2s;
+      }
+
+      button:hover {
+        background: var(--secondary);
+      }
+
+      /* Scrollbar */
+      #chat::-webkit-scrollbar {
+        width: 8px;
+      }
+      #chat::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.15);
+        border-radius: 10px;
+      }
+
+      /* Responsive tweaks (no layout change to existing rules) */
+      @media (max-width: 480px) {
+        .chat-container { width: 96%; max-width: 100%; height: 96vh; }
+        .header { font-size: 1rem; padding: 12px; }
+        #message-input { padding: 8px; }
+        button { padding: 8px 12px; margin-left: 6px; }
+        #message-form { flex-wrap: nowrap; gap:6px; }
+        select#recipient-select { min-width: 110px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="chat-container">
+      <div class="header">💬 Real-Time Chat Room</div>
+  <div id="users">👥 Users online:</div>
+  <div id="me" style="padding:8px 12px; font-size:0.85rem; color:var(--gray);"></div>
+      <div id="chat"></div>
+
+      <form id="message-form">
+        <select id="recipient-select" title="Send to">
+          <option value="">Everyone (public)</option>
+        </select>
+        <input
+          id="message-input"
+          autocomplete="off"
+          placeholder="Type a message..."
+        />
+        <input id="file-input" type="file" style="margin-left:8px;" />
+        <button id="voice-btn" type="button" title="Hold to record">🎤 Hold</button>
+        <button>Send</button>
+      </form>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+
+      // Ask for username until valid
+      let username = "";
+      while (!username) {
+        username = prompt("Enter your username:");
+      }
+      username = username.trim() || "Anonymous";
+      // we'll store our socket id once server sends it
+      let myId = null;
+
+      socket.emit("set username", username);
+
+      const chat = document.getElementById("chat");
+      const usersList = document.getElementById("users");
+      const meBox = document.getElementById("me");
+      const form = document.getElementById("message-form");
+      const input = document.getElementById("message-input");
+      const fileInput = document.getElementById("file-input");
+      const recipientSelect = document.getElementById("recipient-select");
+
+      // helper to render messages
+      function renderMessage(data) {
+        const item = document.createElement("div");
+        item.classList.add("message");
+
+        const when = new Date(data.timestamp || Date.now()).toLocaleTimeString();
+
+        // private tag
+        const privateTag = data.recipientId && data.recipientId !== null ?
+          (data.recipientId === myId || data.senderId === myId ? "(private) " : "(private to someone) ") : "";
+
+        if (data.type === "file" || data.type === "voice") {
+          // show link to uploaded file
+          const name = data.originalName || data.message;
+          item.innerHTML = `<strong>${data.username}</strong> ${privateTag}: <a href="${data.message}" target="_blank">${name}</a> <span style="float:right;color:#888;font-size:0.8rem">${when}</span>`;
+        } else {
+          item.innerHTML = `<strong>${data.username}</strong> ${privateTag}: ${escapeHtml(data.message)} <span style="float:right;color:#888;font-size:0.8rem">${when}</span>`;
+        }
+
+        chat.appendChild(item);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      // basic escaping
+      function escapeHtml(unsafe) {
+        return unsafe
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/\'/g, "&#039;");
+      }
+
+      // handle form submit: either send text or upload file
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const recipientId = recipientSelect.value || null;
+
+        // if a file is selected, upload it
+        if (fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("senderId", myId);
+          if (recipientId) formData.append("recipientId", recipientId);
+          formData.append("username", username);
+          // type can be 'file' or 'voice' if you later detect audio
+          formData.append("type", "file");
+
+          try {
+            const res = await fetch("/upload", { method: "POST", body: formData });
+            const json = await res.json();
+            if (!res.ok) {
+              alert(json.error || "Upload failed");
+            } else {
+              // server will emit the chat message for us; optionally you can render immediately
+              fileInput.value = "";
+            }
+          } catch (err) {
+            console.error(err);
+            alert("Upload failed");
+          }
+
+          return;
+        }
+
+        // otherwise send text (could be string or object for private)
+        const text = input.value && input.value.trim();
+        if (!text) return;
+
+        if (recipientId) {
+          socket.emit("chat message", { message: text, recipientId });
+        } else {
+          socket.emit("chat message", text);
+        }
+
+        input.value = "";
+      });
+
+      // receive your id
+      socket.on("your id", (id) => {
+        myId = id;
+        //meBox.textContent = `Your id: ${id}`;
+      });
+
+      // --- Voice recording (hold-to-record) ---
+      const voiceBtn = document.getElementById('voice-btn');
+      let mediaRecorder = null;
+      let audioChunks = [];
+      let isRecording = false;
+
+      // helpers
+      function startRecording() {
+        if (isRecording) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          alert('Your browser does not support audio recording.');
+          return;
+        }
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(stream => {
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = () => {
+              const blob = new Blob(audioChunks, { type: 'audio/webm' });
+              uploadVoice(blob);
+              // stop all tracks
+              stream.getTracks().forEach(t => t.stop());
+            };
+            mediaRecorder.start();
+            isRecording = true;
+            voiceBtn.textContent = '🔴 Recording...';
+            voiceBtn.style.background = '#e63946';
+          })
+          .catch(err => {
+            console.error('getUserMedia error', err);
+            alert('Microphone access denied or unavailable.');
+          });
+      }
+
+      function stopRecording() {
+        if (!isRecording) return;
+        isRecording = false;
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+        voiceBtn.textContent = '🎤 Hold';
+        voiceBtn.style.background = '';
+      }
+
+      // upload recorded audio as 'voice' type
+      async function uploadVoice(blob) {
+        const recipientId = recipientSelect.value || null;
+        const filename = `${Date.now()}-voice.webm`;
+        const file = new File([blob], filename, { type: blob.type });
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('senderId', myId);
+        if (recipientId) formData.append('recipientId', recipientId);
+        formData.append('username', username);
+        formData.append('type', 'voice');
+
+        try {
+          const res = await fetch('/upload', { method: 'POST', body: formData });
+          const data = await res.json();
+          if (!res.ok) {
+            alert(data.error || 'Upload failed');
+          }
+        } catch (err) {
+          console.error('voice upload failed', err);
+          alert('Voice upload failed');
+        }
+      }
+
+      // pointer and touch friendly handlers
+      voiceBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        startRecording();
+      });
+      // pointerup and pointercancel stop recording
+      document.addEventListener('pointerup', () => stopRecording());
+      document.addEventListener('pointercancel', () => stopRecording());
+
+      // also support touchend for some older browsers
+      document.addEventListener('touchend', () => stopRecording());
+
+      socket.on("chat message", (data) => {
+        renderMessage(data);
+      });
+
+      socket.on("user notification", (msg) => {
+        const item = document.createElement("div");
+        item.classList.add("notification");
+        item.textContent = msg;
+        chat.appendChild(item);
+        chat.scrollTop = chat.scrollHeight;
+      });
+
+      // expect users as array of {id,name}
+      socket.on("user list", (users) => {
+        // update users text and recipient select
+        usersList.textContent = "👥 Users online:";
+        // clear select but keep first option
+        recipientSelect.innerHTML = "<option value=\"\">Everyone (public)</option>";
+
+        users.forEach((u) => {
+          const span = document.createElement("div");
+          span.textContent = `• ${u.name}`;
+          span.style.fontSize = "0.9rem";
+          span.style.padding = "2px 12px";
+          usersList.appendChild(span);
+
+          // add to select (don't add self as recipient option? still can)
+          const opt = document.createElement("option");
+          opt.value = u.id;
+          opt.textContent = `${u.name}${u.id === myId ? " (you)" : ""}`;
+          recipientSelect.appendChild(opt);
+        });
+      });
+    </script>
+  </body>
+</html>
